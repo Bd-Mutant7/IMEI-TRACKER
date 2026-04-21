@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IMEI Tracker — Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg:         #080c10;
+    --surface:    #0d1117;
+    --card:       #111820;
+    --border:     #1e2d3d;
+    --accent:     #00d4ff;
+    --accent2:    #ff6b35;
+    --green:      #39ff14;
+    --text:       #c9d1d9;
+    --muted:      #4a5568;
+    --mono:       'Share Tech Mono', monospace;
+    --sans:       'Barlow', sans-serif;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; background:var(--bg); color:var(--text); font-family:var(--sans); overflow:hidden; }
+
+  /* ── Layout ── */
+  .app { display:grid; grid-template-columns:280px 1fr; grid-template-rows:56px 1fr; height:100vh; }
+
+  /* ── Topbar ── */
+  .topbar {
+    grid-column:1/-1;
+    background:var(--surface);
+    border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:16px; padding:0 20px;
+  }
+  .logo { font-family:var(--mono); color:var(--accent); font-size:14px; letter-spacing:3px; }
+  .logo span { color:var(--accent2); }
+  .status-pill {
+    margin-left:auto; font-family:var(--mono); font-size:11px;
+    padding:4px 10px; border-radius:2px; background:#0d2a1a;
+    border:1px solid var(--green); color:var(--green);
+    display:flex; align-items:center; gap:6px;
+  }
+  .pulse { width:7px; height:7px; border-radius:50%; background:var(--green); animation:pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .topbar-user { font-size:13px; color:var(--muted); cursor:pointer; }
+  .topbar-user:hover { color:var(--text); }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    background:var(--surface);
+    border-right:1px solid var(--border);
+    display:flex; flex-direction:column;
+    overflow:hidden;
+  }
+  .sidebar-section { padding:14px 16px 6px; font-family:var(--mono); font-size:10px; color:var(--muted); letter-spacing:2px; }
+  .device-list { flex:1; overflow-y:auto; padding:4px 8px; }
+  .device-item {
+    padding:10px 12px; border-radius:4px; cursor:pointer;
+    border:1px solid transparent; margin-bottom:4px;
+    transition:.15s;
+  }
+  .device-item:hover { background:var(--card); border-color:var(--border); }
+  .device-item.active { background:#0a1f2f; border-color:var(--accent); }
+  .device-item .di-name { font-size:13px; font-weight:600; }
+  .device-item .di-imei { font-family:var(--mono); font-size:10px; color:var(--muted); margin-top:2px; }
+  .device-item .di-status { font-size:10px; margin-top:4px; display:flex; align-items:center; gap:4px; }
+  .dot { width:6px; height:6px; border-radius:50%; }
+  .dot.online { background:var(--green); }
+  .dot.offline { background:var(--muted); }
+
+  .add-device-btn {
+    margin:12px; padding:10px;
+    background:transparent; border:1px dashed var(--border);
+    color:var(--accent); font-family:var(--mono); font-size:12px;
+    border-radius:4px; cursor:pointer; letter-spacing:1px;
+    transition:.15s;
+  }
+  .add-device-btn:hover { background:#0a1f2f; border-color:var(--accent); }
+
+  /* ── Main ── */
+  .main { display:grid; grid-template-rows:1fr 220px; overflow:hidden; position:relative; }
+
+  /* ── Map ── */
+  #map { width:100%; height:100%; background:#0a0f14; }
+  .leaflet-container { background:#0a0f14 !important; }
+
+  /* Map overlay info */
+  .map-overlay {
+    position:absolute; top:16px; right:16px; z-index:999;
+    background:rgba(13,17,23,.9); border:1px solid var(--border);
+    border-radius:4px; padding:14px; min-width:220px;
+    backdrop-filter:blur(8px);
+  }
+  .mo-label { font-family:var(--mono); font-size:10px; color:var(--muted); letter-spacing:1px; }
+  .mo-value { font-size:14px; font-weight:600; margin-top:2px; }
+  .mo-value.coord { font-family:var(--mono); font-size:12px; color:var(--accent); }
+  .mo-row { margin-bottom:10px; }
+  .mo-row:last-child { margin-bottom:0; }
+  .mo-address { font-size:12px; color:var(--text); line-height:1.4; }
+
+  /* ── Bottom Panel ── */
+  .bottom-panel {
+    background:var(--surface);
+    border-top:1px solid var(--border);
+    display:grid; grid-template-columns:1fr 1fr 1fr;
+    gap:1px; background:var(--border);
+    overflow:hidden;
+  }
+  .panel-section {
+    background:var(--surface);
+    padding:14px 16px;
+    overflow-y:auto;
+  }
+  .panel-title {
+    font-family:var(--mono); font-size:10px;
+    color:var(--accent); letter-spacing:2px; margin-bottom:12px;
+  }
+
+  /* History Table */
+  .hist-table { width:100%; border-collapse:collapse; font-size:12px; }
+  .hist-table th { font-family:var(--mono); font-size:9px; color:var(--muted); letter-spacing:1px;
+    text-align:left; padding:4px 6px; border-bottom:1px solid var(--border); }
+  .hist-table td { padding:6px 6px; border-bottom:1px solid rgba(30,45,61,.4); font-family:var(--mono); font-size:11px; }
+  .hist-table tr:hover td { background:var(--card); cursor:pointer; }
+
+  /* Stats */
+  .stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .stat-box {
+    background:var(--card); border:1px solid var(--border);
+    border-radius:4px; padding:12px;
+  }
+  .stat-label { font-family:var(--mono); font-size:9px; color:var(--muted); letter-spacing:1px; }
+  .stat-value { font-family:var(--mono); font-size:20px; color:var(--accent); margin-top:4px; }
+  .stat-sub   { font-size:10px; color:var(--muted); margin-top:2px; }
+
+  /* Alerts */
+  .alert-item {
+    padding:8px 10px; border-radius:3px; margin-bottom:6px;
+    border-left:3px solid var(--accent2); background:var(--card);
+    font-size:12px;
+  }
+  .alert-item .al-type { font-family:var(--mono); font-size:9px; color:var(--accent2); letter-spacing:1px; }
+  .alert-item .al-msg  { margin-top:3px; }
+  .alert-item .al-time { font-family:var(--mono); font-size:9px; color:var(--muted); margin-top:3px; }
+
+  /* ── Modal ── */
+  .modal-bg {
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.7);
+    z-index:9999; align-items:center; justify-content:center;
+    backdrop-filter:blur(4px);
+  }
+  .modal-bg.open { display:flex; }
+  .modal {
+    background:var(--card); border:1px solid var(--border);
+    border-radius:6px; padding:28px; min-width:380px; max-width:480px; width:100%;
+  }
+  .modal h2 { font-family:var(--mono); font-size:14px; letter-spacing:2px; color:var(--accent); margin-bottom:20px; }
+  .form-group { margin-bottom:16px; }
+  .form-group label { display:block; font-family:var(--mono); font-size:10px; color:var(--muted); letter-spacing:1px; margin-bottom:6px; }
+  .form-group input, .form-group select {
+    width:100%; padding:10px 12px;
+    background:var(--surface); border:1px solid var(--border);
+    color:var(--text); border-radius:3px; font-family:var(--mono); font-size:13px;
+    outline:none; transition:.15s;
+  }
+  .form-group input:focus, .form-group select:focus { border-color:var(--accent); }
+  .form-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .btn { padding:10px 20px; border-radius:3px; border:none; cursor:pointer; font-family:var(--mono); font-size:12px; letter-spacing:1px; transition:.15s; }
+  .btn-primary { background:var(--accent); color:#000; }
+  .btn-primary:hover { opacity:.85; }
+  .btn-ghost { background:transparent; color:var(--muted); border:1px solid var(--border); }
+  .btn-ghost:hover { color:var(--text); border-color:var(--text); }
+  .modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:8px; }
+
+  /* API key display */
+  .api-key-box {
+    background:var(--surface); border:1px solid var(--green);
+    border-radius:3px; padding:10px 12px;
+    font-family:var(--mono); font-size:11px; color:var(--green);
+    word-break:break-all; margin-top:16px;
+  }
+  .api-key-note { font-size:11px; color:var(--accent2); margin-top:8px; }
+
+  /* Login screen */
+  .login-screen {
+    position:fixed; inset:0; background:var(--bg);
+    display:flex; align-items:center; justify-content:center;
+    z-index:10000;
+  }
+  .login-card {
+    background:var(--card); border:1px solid var(--border);
+    border-radius:6px; padding:40px; width:360px;
+  }
+  .login-logo { font-family:var(--mono); font-size:18px; color:var(--accent); letter-spacing:4px; margin-bottom:8px; }
+  .login-sub  { font-size:12px; color:var(--muted); margin-bottom:28px; }
+  .login-tabs { display:flex; gap:0; margin-bottom:20px; border:1px solid var(--border); border-radius:3px; overflow:hidden; }
+  .login-tab  { flex:1; padding:8px; text-align:center; font-family:var(--mono); font-size:11px; letter-spacing:1px; cursor:pointer; color:var(--muted); background:transparent; border:none; transition:.15s; }
+  .login-tab.active { background:var(--accent); color:#000; }
+  .err-msg { color:var(--accent2); font-size:12px; margin-top:8px; font-family:var(--mono); }
+
+  ::-webkit-scrollbar { width:4px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">IMEI/TRACKER</div>
+    <div class="login-sub">Device Location Command Center</div>
+    <div class="login-tabs">
+      <button class="login-tab active" onclick="switchTab('login')">LOGIN</button>
+      <button class="login-tab" onclick="switchTab('register')">REGISTER</button>
+    </div>
+    <div id="loginForm">
+      <div class="form-group">
+        <label>EMAIL</label>
+        <input type="email" id="loginEmail" placeholder="operator@domain.com">
+      </div>
+      <div class="form-group">
+        <label>PASSWORD</label>
+        <input type="password" id="loginPassword" placeholder="••••••••">
+      </div>
+      <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="doLogin()">AUTHENTICATE →</button>
+      <div class="err-msg" id="loginErr"></div>
+    </div>
+    <div id="registerForm" style="display:none">
+      <div class="form-group">
+        <label>NAME</label>
+        <input type="text" id="regName" placeholder="Operator name">
+      </div>
+      <div class="form-group">
+        <label>EMAIL</label>
+        <input type="email" id="regEmail" placeholder="operator@domain.com">
+      </div>
+      <div class="form-group">
+        <label>PASSWORD</label>
+        <input type="password" id="regPassword" placeholder="Min. 8 characters">
+      </div>
+      <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="doRegister()">CREATE ACCOUNT →</button>
+      <div class="err-msg" id="regErr"></div>
+    </div>
+    <div style="text-align:center;margin-top:16px;font-size:11px;color:var(--muted)">
+      No API running? Edit <code style="color:var(--accent)">API_BASE</code> in JS
+    </div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div class="app" id="mainApp" style="display:none">
+  <div class="topbar">
+    <div class="logo">IMEI/<span>TRACK</span></div>
+    <div style="font-size:12px;color:var(--muted);font-family:var(--mono)">COMMAND CENTER v1.0</div>
+    <div class="status-pill"><span class="pulse"></span> SYSTEM ONLINE</div>
+    <div class="topbar-user" onclick="logout()" id="userLabel">LOGOUT</div>
+  </div>
+
+  <div class="sidebar">
+    <div class="sidebar-section">REGISTERED DEVICES</div>
+    <div class="device-list" id="deviceList">
+      <div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;font-family:var(--mono)">
+        No devices registered
+      </div>
+    </div>
+    <button class="add-device-btn" onclick="openAddDevice()">+ REGISTER DEVICE</button>
+  </div>
+
+  <div class="main">
+    <div style="position:relative;flex:1">
+      <div id="map"></div>
+      <div class="map-overlay" id="mapOverlay" style="display:none">
+        <div class="mo-row">
+          <div class="mo-label">DEVICE</div>
+          <div class="mo-value" id="moDevice">—</div>
+        </div>
+        <div class="mo-row">
+          <div class="mo-label">COORDINATES</div>
+          <div class="mo-value coord" id="moCoords">—</div>
+        </div>
+        <div class="mo-row">
+          <div class="mo-label">ADDRESS</div>
+          <div class="mo-address" id="moAddress">—</div>
+        </div>
+        <div class="mo-row">
+          <div class="mo-label">LAST SEEN</div>
+          <div class="mo-value" style="font-size:12px" id="moTime">—</div>
+        </div>
+        <div class="mo-row">
+          <div class="mo-label">SOURCE</div>
+          <div class="mo-value" style="font-size:12px;color:var(--green)" id="moSource">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom-panel">
+      <!-- History -->
+      <div class="panel-section">
+        <div class="panel-title">▸ LOCATION HISTORY</div>
+        <table class="hist-table">
+          <thead><tr>
+            <th>TIME</th><th>LAT</th><th>LNG</th><th>SOURCE</th>
+          </tr></thead>
+          <tbody id="historyBody">
+            <tr><td colspan="4" style="color:var(--muted);text-align:center;padding:16px">Select a device</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Stats -->
+      <div class="panel-section">
+        <div class="panel-title">▸ DEVICE STATS</div>
+        <div class="stat-grid">
+          <div class="stat-box">
+            <div class="stat-label">TOTAL PINGS</div>
+            <div class="stat-value" id="statPings">0</div>
+            <div class="stat-sub">location records</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">ACCURACY</div>
+            <div class="stat-value" id="statAccuracy">—</div>
+            <div class="stat-sub">meters (last)</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">IMEI</div>
+            <div class="stat-value" style="font-size:11px;margin-top:6px" id="statIMEI">—</div>
+            <div class="stat-sub">device id</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">CARRIER</div>
+            <div class="stat-value" style="font-size:13px;margin-top:6px" id="statCarrier">—</div>
+            <div class="stat-sub">network</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Alerts -->
+      <div class="panel-section">
+        <div class="panel-title">▸ ALERTS</div>
+        <div id="alertsList">
+          <div style="color:var(--muted);font-size:12px;font-family:var(--mono)">No alerts</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ADD DEVICE MODAL -->
+<div class="modal-bg" id="addDeviceModal">
+  <div class="modal">
+    <h2>▸ REGISTER NEW DEVICE</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label>IMEI (15 digits) *</label>
+        <input type="text" id="newIMEI" placeholder="490154203237518" maxlength="15">
+      </div>
+      <div class="form-group">
+        <label>DEVICE NAME</label>
+        <input type="text" id="newName" placeholder="John's Phone">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>BRAND</label>
+        <input type="text" id="newBrand" placeholder="Samsung">
+      </div>
+      <div class="form-group">
+        <label>MODEL</label>
+        <input type="text" id="newModel" placeholder="Galaxy S23">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>OS TYPE</label>
+        <select id="newOS">
+          <option value="android">Android</option>
+          <option value="ios">iOS</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>PHONE NUMBER</label>
+        <input type="text" id="newPhone" placeholder="+40712345678">
+      </div>
+    </div>
+    <div class="err-msg" id="deviceErr"></div>
+    <div id="apiKeyResult" style="display:none">
+      <div class="api-key-box" id="apiKeyDisplay"></div>
+      <div class="api-key-note">⚠ Copy this API key now. It won't be shown again.<br>
+      Use it as <code>x-device-api-key</code> header in your mobile app.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('addDeviceModal')">CANCEL</button>
+      <button class="btn btn-primary" id="saveDeviceBtn" onclick="saveDevice()">REGISTER →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_BASE = 'http://localhost:3000/api'; // ← Change to your deployed API URL
+let token = localStorage.getItem('tracker_token');
+let currentDevice = null;
+let map, markers = [], polyline;
+
+// ── Init Map ─────────────────────────────────────────────
+function initMap() {
+  map = L.map('map', { zoomControl: false }).setView([45.0, 25.0], 5);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CARTO', maxZoom: 19
+  }).addTo(map);
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+}
+
+// ── Auth ─────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.login-tab').forEach((t,i) => t.classList.toggle('active', (i===0&&tab==='login')||(i===1&&tab==='register')));
+  document.getElementById('loginForm').style.display    = tab==='login'    ? '' : 'none';
+  document.getElementById('registerForm').style.display = tab==='register' ? '' : 'none';
+}
+
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value;
+  const password = document.getElementById('loginPassword').value;
+  try {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+    if (!res.ok) { document.getElementById('loginErr').textContent = data.error; return; }
+    token = data.token;
+    localStorage.setItem('tracker_token', token);
+    document.getElementById('userLabel').textContent = data.user.email + ' · LOGOUT';
+    showApp();
+  } catch { document.getElementById('loginErr').textContent = 'Cannot connect to API. Check API_BASE.'; }
+}
+
+async function doRegister() {
+  const name = document.getElementById('regName').value;
+  const email = document.getElementById('regEmail').value;
+  const password = document.getElementById('regPassword').value;
+  try {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name, email, password })
+    });
+    const data = await res.json();
+    if (!res.ok) { document.getElementById('regErr').textContent = data.error; return; }
+    token = data.token;
+    localStorage.setItem('tracker_token', token);
+    showApp();
+  } catch { document.getElementById('regErr').textContent = 'Cannot connect to API.'; }
+}
+
+function logout() {
+  localStorage.removeItem('tracker_token');
+  token = null;
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('mainApp').style.display = 'none';
+}
+
+function showApp() {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('mainApp').style.display = 'grid';
+  if (!map) setTimeout(initMap, 100);
+  loadDevices();
+  setInterval(refreshActive, 15000);
+}
+
+// ── Devices ──────────────────────────────────────────────
+async function loadDevices() {
+  try {
+    const res = await apiFetch('/devices');
+    const { devices } = await res.json();
+    renderDeviceList(devices);
+  } catch {}
+}
+
+function renderDeviceList(devices) {
+  const list = document.getElementById('deviceList');
+  if (!devices.length) {
+    list.innerHTML = `<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;font-family:var(--mono)">No devices registered</div>`;
+    return;
+  }
+  list.innerHTML = devices.map(d => {
+    const hasLoc = d.last_location;
+    const timeAgo = hasLoc ? relativeTime(d.last_location.recorded_at) : 'never';
+    return `<div class="device-item ${currentDevice?.id===d.id?'active':''}" onclick="selectDevice(${JSON.stringify(d).replace(/"/g,'&quot;')})">
+      <div class="di-name">${d.device_name || d.brand || 'Unknown Device'}</div>
+      <div class="di-imei">${d.imei}</div>
+      <div class="di-status">
+        <span class="dot ${hasLoc?'online':'offline'}"></span>
+        <span style="color:var(--muted)">${timeAgo}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function selectDevice(device) {
+  currentDevice = device;
+  loadDevices();
+  document.getElementById('mapOverlay').style.display = 'block';
+  document.getElementById('moDevice').textContent = device.device_name || device.imei;
+  document.getElementById('statIMEI').textContent = device.imei;
+  document.getElementById('statCarrier').textContent = device.carrier || 'Unknown';
+
+  await loadLocations(device.id);
+}
+
+async function loadLocations(deviceId) {
+  try {
+    const res = await apiFetch(`/locations/${deviceId}?limit=50`);
+    const { locations } = await res.json();
+    renderHistory(locations);
+    renderMap(locations);
+    if (locations.length) {
+      const l = locations[0];
+      document.getElementById('moCoords').textContent = `${parseFloat(l.latitude).toFixed(6)}, ${parseFloat(l.longitude).toFixed(6)}`;
+      document.getElementById('moAddress').textContent = l.address || `${l.city||''} ${l.country||''}`.trim() || 'Unknown';
+      document.getElementById('moTime').textContent = new Date(l.recorded_at).toLocaleString();
+      document.getElementById('moSource').textContent = l.source?.toUpperCase() || 'GPS';
+      document.getElementById('statPings').textContent = locations.length;
+      document.getElementById('statAccuracy').textContent = l.accuracy ? Math.round(l.accuracy) : '—';
+    }
+  } catch {}
+}
+
+function renderHistory(locations) {
+  const body = document.getElementById('historyBody');
+  if (!locations.length) {
+    body.innerHTML = `<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:16px">No location data</td></tr>`;
+    return;
+  }
+  body.innerHTML = locations.slice(0,20).map(l => `
+    <tr onclick="flyTo(${l.latitude},${l.longitude})">
+      <td>${new Date(l.recorded_at).toLocaleTimeString()}</td>
+      <td>${parseFloat(l.latitude).toFixed(5)}</td>
+      <td>${parseFloat(l.longitude).toFixed(5)}</td>
+      <td style="color:var(--accent)">${l.source||'gps'}</td>
+    </tr>`).join('');
+}
+
+function renderMap(locations) {
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+  if (polyline) map.removeLayer(polyline);
+
+  if (!locations.length) return;
+
+  const latlngs = locations.map(l => [parseFloat(l.latitude), parseFloat(l.longitude)]);
+
+  // Draw trail
+  polyline = L.polyline(latlngs, { color:'#00d4ff', weight:2, opacity:.5 }).addTo(map);
+
+  // Latest marker (bright)
+  const latest = locations[0];
+  const icon = L.divIcon({
+    html:`<div style="width:14px;height:14px;background:var(--green);border-radius:50%;border:2px solid #fff;box-shadow:0 0 8px var(--green)"></div>`,
+    iconSize:[14,14], className:''
+  });
+  const m = L.marker([parseFloat(latest.latitude), parseFloat(latest.longitude)], {icon})
+    .addTo(map)
+    .bindPopup(`<b>Latest</b><br>${latest.address||''}<br>${new Date(latest.recorded_at).toLocaleString()}`);
+  markers.push(m);
+
+  // Older markers
+  locations.slice(1).forEach(l => {
+    const sm = L.circleMarker([parseFloat(l.latitude), parseFloat(l.longitude)],
+      { radius:4, color:'#00d4ff', fillOpacity:.6, weight:1 }).addTo(map);
+    markers.push(sm);
+  });
+
+  map.fitBounds(polyline.getBounds(), { padding:[30,30] });
+}
+
+function flyTo(lat, lng) {
+  map.flyTo([lat, lng], 16);
+}
+
+function refreshActive() {
+  if (currentDevice) loadLocations(currentDevice.id);
+}
+
+// ── Add Device ───────────────────────────────────────────
+function openAddDevice() {
+  document.getElementById('apiKeyResult').style.display = 'none';
+  document.getElementById('saveDeviceBtn').style.display = '';
+  document.getElementById('deviceErr').textContent = '';
+  document.getElementById('addDeviceModal').classList.add('open');
+}
+
+async function saveDevice() {
+  const imei = document.getElementById('newIMEI').value.trim();
+  const payload = {
+    imei,
+    device_name: document.getElementById('newName').value,
+    brand:       document.getElementById('newBrand').value,
+    model:       document.getElementById('newModel').value,
+    os_type:     document.getElementById('newOS').value,
+    phone_number:document.getElementById('newPhone').value
+  };
+  try {
+    const res = await apiFetch('/devices', 'POST', payload);
+    const data = await res.json();
+    if (!res.ok) { document.getElementById('deviceErr').textContent = data.error; return; }
+    document.getElementById('apiKeyDisplay').textContent = data.device.api_key;
+    document.getElementById('apiKeyResult').style.display = 'block';
+    document.getElementById('saveDeviceBtn').style.display = 'none';
+    loadDevices();
+  } catch (e) { document.getElementById('deviceErr').textContent = e.message; }
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+// ── Helpers ──────────────────────────────────────────────
+async function apiFetch(path, method='GET', body) {
+  return fetch(`${API_BASE}${path}`, {
+    method,
+    headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${token}` },
+    body: body ? JSON.stringify(body) : undefined
+  });
+}
+
+function relativeTime(iso) {
+  const diff = Date.now() - new Date(iso);
+  const m = Math.floor(diff/60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m/60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h/24)}d ago`;
+}
+
+// ── Boot ─────────────────────────────────────────────────
+if (token) {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('mainApp').style.display = 'grid';
+  setTimeout(initMap, 100);
+  loadDevices();
+  setInterval(refreshActive, 15000);
+}
+</script>
+</body>
+</html>

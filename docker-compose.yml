@@ -1,0 +1,66 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: imei_tracker_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       imei_tracker
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: imei_tracker_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV:              production
+      PORT:                  3000
+      DB_HOST:               db
+      DB_PORT:               5432
+      DB_NAME:               imei_tracker
+      DB_USER:               postgres
+      DB_PASSWORD:           ${DB_PASSWORD:-changeme}
+      JWT_SECRET:            ${JWT_SECRET:-change_this_secret}
+      JWT_EXPIRES_IN:        7d
+      GOOGLE_MAPS_API_KEY:   ${GOOGLE_MAPS_API_KEY}
+      OPENCELLID_API_KEY:    ${OPENCELLID_API_KEY}
+      NUMVERIFY_API_KEY:     ${NUMVERIFY_API_KEY}
+      TWILIO_ACCOUNT_SID:    ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN:     ${TWILIO_AUTH_TOKEN}
+      ABSTRACT_IP_GEO_KEY:   ${ABSTRACT_IP_GEO_KEY}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  # Optional: pgAdmin for DB management
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: imei_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL:    admin@tracker.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+
+volumes:
+  pgdata:
