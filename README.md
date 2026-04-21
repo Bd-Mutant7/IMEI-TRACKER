@@ -2,37 +2,12 @@
 
 # 🛰 IMEI Tracker — Complete Setup & API Integration Guide
 
+[![Support](https://img.shields.io/badge/Support-Paystack-00C3F7?style=for-the-badge&logo=paypal&logoColor=white)](https://paystack.shop/pay/bd-mutant7)
+
 
 ![IMEI Tracker](IMEI-TRACKER.png)
 
 
-## Project Structure
-
-```
-imei-tracker/
-├── backend/
-│   ├── src/
-│   │   ├── index.js              ← Express app entry
-│   │   ├── config/
-│   │   │   ├── db.js             ← PostgreSQL pool
-│   │   │   ├── migrate.js        ← DB schema setup
-│   │   │   └── integrations.js   ← All external API calls
-│   │   ├── routes/
-│   │   │   ├── auth.js           ← Register/Login
-│   │   │   ├── devices.js        ← IMEI management
-│   │   │   ├── locations.js      ← Location push/query
-│   │   │   └── geofences.js      ← Alert zones
-│   │   └── middleware/
-│   │       └── auth.js           ← JWT + device key auth
-│   ├── .env.example
-│   ├── Dockerfile
-│   └── package.json
-├── frontend/
-│   └── index.html                ← Dashboard (no build needed)
-├── mobile-agent/
-│   └── LocationReporterService.kt ← Android background service
-└── docker-compose.yml
-```
 
 ---
 
